@@ -1,0 +1,42 @@
+name: Veille vols
+
+on:
+  schedule:
+    # Tous les jours à 6h00 UTC (8h en France)
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: pip install requests
+
+      - name: Restaurer les prix précédents
+        uses: actions/cache/restore@v4
+        with:
+          path: state_vols.json
+          key: vols-state-${{ github.run_id }}
+          restore-keys: vols-state-
+
+      - name: Vérifier les prix
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python vols_ryanair.py
+
+      - name: Sauvegarder les prix
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state_vols.json
+          key: vols-state-${{ github.run_id }}
