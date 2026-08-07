@@ -327,28 +327,28 @@ def chercher_comparateur(route: dict, mois_liste: list) -> list:
 
     dest = route["destination"]
     debut, fin = mois_liste[0][:7], mois_liste[-1][:7]
-    offres = []
+    resultats = []   # accumulateur, tous aéroports confondus
 
     for origin in route.get("origins_compare", []):
         if origin == dest:
             continue
 
-        offres = offres_travelpayouts(origin, dest)
+        brut = offres_travelpayouts(origin, dest)
 
         # Si le survol mensuel ne donne rien, on sonde quelques mois précis
-        if not offres:
+        if not brut:
             indices = {0, len(mois_liste) // 2, len(mois_liste) - 1}
             for i in sorted(indices):
-                offres.extend(offres_travelpayouts(origin, dest, mois_liste[i]))
+                brut.extend(offres_travelpayouts(origin, dest, mois_liste[i]))
 
-        for o in offres:
+        for o in brut:
             if not o["depart"] or not (debut <= o["depart"][:7] <= fin):
                 continue
             if not nuits_ok(o["depart"], o["retour"], route):
                 continue
-            offres.append((o["prix"], origin, o["depart"], o["retour"],
-                           nom_compagnie(o["compagnie"])))
-    return offres
+            resultats.append((o["prix"], origin, o["depart"], o["retour"],
+                              nom_compagnie(o["compagnie"])))
+    return resultats
 
 
 # ----------------------------------------------------------------
