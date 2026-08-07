@@ -117,6 +117,34 @@ ROUTES = [
         "nuits_max": 45,
         "seuil": 600,
     },
+  {
+        "nom": "🇨🇦 Canada (Montréal)",
+        "destination": "YMQ",           # code ville : tous les aéroports
+        "origins_ryanair": [],          # aucun low-cost ne traverse l'Atlantique
+        "origins_compare": ["PAR", "BRU", "LYS"],
+        "nuits_min": 2,
+        "nuits_max": 6,
+        "seuil": 1200,
+        "periode": {
+            "nom": "20-23 août",
+            "mois": [8], "jour_min": 18, "jour_max": 24,
+            "seuil": 1200,
+        },
+    },
+    {
+        "nom": "🇨🇦 Canada (Toronto)",
+        "destination": "YTO",
+        "origins_ryanair": [],
+        "origins_compare": ["PAR", "BRU", "LYS"],
+        "nuits_min": 2,
+        "nuits_max": 6,
+        "seuil": 1200,
+        "periode": {
+            "nom": "20-23 août",
+            "mois": [8], "jour_min": 18, "jour_max": 24,
+            "seuil": 1200,
+        },
+    },
     {
         "nom": "🇧🇸 Bahamas (Nassau)",
         "destination": "NAS",
