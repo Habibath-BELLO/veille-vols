@@ -32,6 +32,9 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+          # Mets la variable VEILLE_ACTIVE à "off" pour suspendre la veille
+          VEILLE_ACTIVE: ${{ vars.VEILLE_ACTIVE }}
         run: python vols_ryanair.py
 
       - name: Sauvegarder les prix
