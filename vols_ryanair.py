@@ -9,6 +9,10 @@ Deux sources complémentaires :
 La plage de dates se calcule toute seule à chaque exécution.
 Aucune modification manuelle n'est nécessaire.
 
+Une destination peut avoir une "période" privilégiée (ex. décembre) :
+elle est alors suivie EN PLUS du meilleur prix toutes périodes confondues,
+avec son propre seuil. Tu reçois donc deux signaux distincts.
+
 Secrets attendus :
   TELEGRAM_BOT_TOKEN   (obligatoire)
   TELEGRAM_CHAT_ID     (obligatoire)
@@ -44,7 +48,11 @@ ROUTES = [
         "origins_compare": ["PAR", "BRU", "LYS"],
         "nuits_min": 3,
         "nuits_max": 14,
-        "seuil": 75,
+        "seuil": 200,
+        # Période privilégiée suivie en parallèle.
+        # Pour en ajouter une ailleurs, copie ce bloc dans la destination
+        # voulue : "mois" = numéros des mois, "seuil" = seuil propre.
+        "periode": {"nom": "décembre", "mois": [12], "seuil": 200},
     },
     {
         "nom": "🇮🇹 Italie (Rome)",
@@ -53,7 +61,7 @@ ROUTES = [
         "origins_compare": ["PAR", "BRU", "LYS"],
         "nuits_min": 2,
         "nuits_max": 10,
-        "seuil": 55,
+        "seuil": 200,
     },
     {
         "nom": "🇮🇹 Italie (Milan)",
@@ -62,7 +70,7 @@ ROUTES = [
         "origins_compare": ["PAR", "BRU", "LYS"],
         "nuits_min": 2,
         "nuits_max": 10,
-        "seuil": 40,
+        "seuil": 200,
     },
     {
         "nom": "🇪🇸 Espagne (Barcelone)",
@@ -71,7 +79,7 @@ ROUTES = [
         "origins_compare": ["PAR", "BRU", "LYS"],
         "nuits_min": 2,
         "nuits_max": 10,
-        "seuil": 45,
+        "seuil": 200,
     },
     {
         "nom": "🇪🇸 Espagne (Madrid)",
@@ -80,7 +88,7 @@ ROUTES = [
         "origins_compare": ["PAR", "BRU", "LYS"],
         "nuits_min": 2,
         "nuits_max": 10,
-        "seuil": 55,
+        "seuil": 200,
     },
     {
         "nom": "🇧🇪 Belgique (Bruxelles)",
@@ -89,7 +97,7 @@ ROUTES = [
         "origins_compare": ["PAR", "LYS"],
         "nuits_min": 1,
         "nuits_max": 10,
-        "seuil": 60,
+        "seuil": 200,
     },
     {
         "nom": "🇬🇷 Mykonos",
@@ -98,7 +106,7 @@ ROUTES = [
         "origins_compare": ["PAR", "BRU"],
         "nuits_min": 4,
         "nuits_max": 15,
-        "seuil": 200,
+        "seuil": 600,
     },
     {
         "nom": "🇧🇯 Bénin (Cotonou)",
@@ -107,7 +115,7 @@ ROUTES = [
         "origins_compare": ["PAR", "BRU"],
         "nuits_min": 5,
         "nuits_max": 45,
-        "seuil": 550,
+        "seuil": 600,
     },
     {
         "nom": "🇧🇸 Bahamas (Nassau)",
@@ -116,11 +124,27 @@ ROUTES = [
         "origins_compare": ["PAR", "BRU"],
         "nuits_min": 5,
         "nuits_max": 30,
-        "seuil": 700,
+        "seuil": 600,
     },
 ]
 
 PAUSE = 0.5  # pause entre deux requêtes, par politesse
+
+# Deuxième déclencheur d'alerte, indépendant du seuil : toute baisse d'au
+# moins ce pourcentage par rapport au dernier prix connu. Garantit qu'une
+# destination reste vivante même si son seuil est mal calibré.
+BAISSE_MINI = 0.15  # 15 %
+
+# Filtre anti-bruit : sous le seuil, un nouveau record ne déclenche l'alerte
+# que s'il améliore l'ancien d'au moins ce pourcentage. Évite d'être
+# notifiée pour 1 € de moins quand les seuils sont larges.
+AMELIORATION_MINI = 0.03  # 3 %
+
+# Récapitulatif hebdomadaire : le plus bas prix de CHAQUE destination,
+# envoyé même sans baisse. 0 = lundi, 1 = mardi ... 6 = dimanche.
+# Mets RECAP_HEBDO = False pour le désactiver.
+RECAP_HEBDO = True
+JOUR_RECAP = 0
 
 # ============================================================
 
@@ -211,9 +235,10 @@ def extraire_tarifs(bloc: dict) -> dict:
     return tarifs
 
 
-def chercher_ryanair(route: dict, mois_liste: list):
+def chercher_ryanair(route: dict, mois_liste: list) -> list:
+    """Renvoie la meilleure offre de chaque couple mois/aéroport."""
     dest = route["destination"]
-    meilleur = None
+    offres = []
     for mois in mois_liste:
         for origin in route.get("origins_ryanair", []):
             if origin == dest:
@@ -235,19 +260,17 @@ def chercher_ryanair(route: dict, mois_liste: list):
             finally:
                 time.sleep(PAUSE)
 
-            aller = extraire_tarifs(data.get("outbound"))
-            retour = extraire_tarifs(data.get("inbound"))
-            for ja, pa in aller.items():
-                for jr, pr in retour.items():
+            local = None
+            for ja, pa in extraire_tarifs(data.get("outbound")).items():
+                for jr, pr in extraire_tarifs(data.get("inbound")).items():
                     if not nuits_ok(ja, jr, route):
                         continue
                     total = pa + pr
-                    if meilleur is None or total < meilleur[0]:
-                        meilleur = (total, origin, ja, jr, "Ryanair")
-    if meilleur:
-        print(f"    Ryanair : {meilleur[0]:.0f} € depuis {meilleur[1]} "
-              f"({meilleur[2]} → {meilleur[3]})")
-    return meilleur
+                    if local is None or total < local[0]:
+                        local = (total, origin, ja, jr, "Ryanair")
+            if local:
+                offres.append(local)
+    return offres
 
 
 # ------------------ source 2 : Travelpayouts ------------------
@@ -297,13 +320,14 @@ def offres_travelpayouts(origin: str, dest: str, mois: str = None) -> list:
     return offres
 
 
-def chercher_comparateur(route: dict, mois_liste: list):
+def chercher_comparateur(route: dict, mois_liste: list) -> list:
+    """Renvoie toutes les offres valides trouvées par le comparateur."""
     if not TP_TOKEN:
-        return None
+        return []
 
     dest = route["destination"]
     debut, fin = mois_liste[0][:7], mois_liste[-1][:7]
-    meilleur = None
+    offres = []
 
     for origin in route.get("origins_compare", []):
         if origin == dest:
@@ -322,14 +346,9 @@ def chercher_comparateur(route: dict, mois_liste: list):
                 continue
             if not nuits_ok(o["depart"], o["retour"], route):
                 continue
-            if meilleur is None or o["prix"] < meilleur[0]:
-                meilleur = (o["prix"], origin, o["depart"], o["retour"],
-                            nom_compagnie(o["compagnie"]))
-
-    if meilleur:
-        print(f"    Toutes cies : {meilleur[0]:.0f} € depuis {meilleur[1]} "
-              f"({meilleur[2]} → {meilleur[3]}, {meilleur[4]})")
-    return meilleur
+            offres.append((o["prix"], origin, o["depart"], o["retour"],
+                           nom_compagnie(o["compagnie"])))
+    return offres
 
 
 # ----------------------------------------------------------------
@@ -352,6 +371,55 @@ def lien(origin: str, dest: str, ja: str, jr: str, compagnie: str) -> str:
             f"%20to%20{dest}%20on%20{ja}%20through%20{jr}")
 
 
+def traiter(libelle: str, cle: str, offres: list, seuil: float,
+            etat: dict, nouvel_etat: dict, alertes: list, recap: list,
+            dest: str, exclure=None, digest: list = None):
+    """Retient la meilleure offre d'un lot et déclenche l'alerte si besoin."""
+    if not offres:
+        print(f"  {libelle} : aucune offre trouvée")
+        if cle in etat:
+            nouvel_etat[cle] = etat[cle]
+        recap.append(f"{libelle} : —")
+        if digest is not None:
+            digest.append(f"{libelle} — <i>aucune offre</i>")
+        return None
+
+    prix, origin, ja, jr, compagnie = min(offres, key=lambda x: x[0])
+    nouvel_etat[cle] = prix
+    ancien = etat.get(cle)
+    print(f"  {libelle} : {prix:.0f} € depuis {origin} ({compagnie}, {ja} → {jr})")
+    recap.append(f"{libelle} : {prix:.0f} € ({origin}, {compagnie}, {ja})")
+    if digest is not None:
+        digest.append(
+            f'<a href="{lien(origin, dest, ja, jr, compagnie)}">'
+            f"<b>{libelle} — {prix:.0f} €</b></a>\n"
+            f"    {origin} · {ja} · {compagnie}"
+        )
+
+    # évite de signaler deux fois exactement la même offre
+    if exclure and (prix, ja, jr) == exclure:
+        return (prix, ja, jr)
+
+    # sous le seuil : il faut un vrai nouveau record, pas 1 € de moins
+    sous_seuil = prix <= seuil and (
+        ancien is None or prix <= ancien * (1 - AMELIORATION_MINI)
+    )
+    chute = ancien is not None and prix <= ancien * (1 - BAISSE_MINI)
+
+    if sous_seuil or chute:
+        if ancien:
+            pct = (ancien - prix) / ancien * 100
+            baisse = f" · avant : {ancien:.0f} € (−{pct:.0f} %)"
+        else:
+            baisse = ""
+        alertes.append(
+            f"<b>{libelle} — {prix:.0f} €</b>{baisse}\n"
+            f"{origin} → {dest} · {ja} au {jr} · {compagnie}\n"
+            f'<a href="{lien(origin, dest, ja, jr, compagnie)}">Voir l\'offre</a>'
+        )
+    return (prix, ja, jr)
+
+
 def main() -> None:
     if EN_PAUSE:
         print("⏸ Veille en pause (VEILLE_ACTIVE = off). Aucune recherche lancée.")
@@ -368,34 +436,30 @@ def main() -> None:
     nouvel_etat = {}
     alertes = []
     recap = []
+    digest = []
 
     for route in ROUTES:
-        nom, dest, seuil = route["nom"], route["destination"], route["seuil"]
-        print(f"{nom} — seuil {seuil} €")
+        nom, dest = route["nom"], route["destination"]
+        print(f"{nom}")
 
-        candidats = [c for c in (chercher_ryanair(route, mois_liste),
-                                 chercher_comparateur(route, mois_liste)) if c]
+        offres = (chercher_ryanair(route, mois_liste)
+                  + chercher_comparateur(route, mois_liste))
 
-        if not candidats:
-            print("  (aucune offre trouvée)\n")
-            if dest in etat:
-                nouvel_etat[dest] = etat[dest]
-            recap.append(f"{nom} : —")
-            continue
+        # 1) meilleur prix toutes périodes confondues
+        retenu = traiter(nom, dest, offres, route["seuil"],
+                         etat, nouvel_etat, alertes, recap, dest,
+                         digest=digest)
 
-        prix, origin, ja, jr, compagnie = min(candidats, key=lambda x: x[0])
-        nouvel_etat[dest] = prix
-        ancien = etat.get(dest)
-        print(f"  → retenu : {prix:.0f} € depuis {origin} ({compagnie})\n")
-        recap.append(f"{nom} : {prix:.0f} € ({origin}, {compagnie})")
-
-        if prix <= seuil and (ancien is None or prix < ancien):
-            baisse = f" · avant : {ancien:.0f} €" if ancien else ""
-            alertes.append(
-                f"<b>{nom} — {prix:.0f} €</b>{baisse}\n"
-                f"{origin} → {dest} · {ja} au {jr} · {compagnie}\n"
-                f'<a href="{lien(origin, dest, ja, jr, compagnie)}">Voir l\'offre</a>'
-            )
+        # 2) meilleur prix sur la période privilégiée, s'il y en a une
+        periode = route.get("periode")
+        if periode:
+            sous = [o for o in offres
+                    if len(o[2]) >= 7 and int(o[2][5:7]) in periode["mois"]]
+            traiter(f"{nom} · {periode['nom']}",
+                    f"{dest}-{periode['nom']}", sous, periode["seuil"],
+                    etat, nouvel_etat, alertes, recap, dest, exclure=retenu,
+                    digest=digest)
+        print()
 
     print("--- Récapitulatif ---")
     for ligne in recap:
@@ -403,9 +467,17 @@ def main() -> None:
 
     if alertes:
         send_telegram("✈️ <b>Bon plan billets !</b>\n\n" + "\n\n".join(alertes))
-        print(f"\n✅ Notification envoyée ({len(alertes)} alerte(s))")
+        print(f"\n✅ Alerte envoyée ({len(alertes)} baisse(s))")
     else:
-        print("\nRien sous les seuils aujourd'hui.")
+        print("\nAucune baisse significative aujourd'hui.")
+
+    # Récapitulatif hebdomadaire : tous les plus bas prix, même sans baisse
+    if RECAP_HEBDO and date.today().weekday() == JOUR_RECAP and digest:
+        send_telegram(
+            "📊 <b>Les plus bas prix de la semaine</b>\n\n"
+            + "\n\n".join(digest)
+        )
+        print("📊 Récapitulatif hebdomadaire envoyé")
 
     STATE_FILE.write_text(json.dumps(nouvel_etat, indent=2))
 
