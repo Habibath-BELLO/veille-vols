@@ -40,12 +40,20 @@ import requests
 # 13 mois correspond à l'horizon de mise en vente des compagnies.
 HORIZON_MOIS = 13
 
+# Aéroports de départ, TOUS EN FRANCE.
+#   FR_RYANAIR : codes d'aéroport, c'est ce que Ryanair attend
+#   FR_COMPARE : codes de ville, le comparateur regroupe ainsi tous les
+#                aéroports d'une agglomération (PAR = Roissy + Orly + Beauvais)
+# Pour ajouter une ville, ajoute son code IATA dans la bonne liste.
+FR_RYANAIR = ["BVA", "MRS", "LYS", "TLS", "BOD"]
+FR_COMPARE = ["PAR", "LYS", "MRS", "NCE", "TLS"]
+
 ROUTES = [
     {
         "nom": "🇲🇹 Malte",
         "destination": "MLA",
-        "origins_ryanair": ["BVA", "CRL", "MRS"],
-        "origins_compare": ["PAR", "BRU", "LYS"],
+        "origins_ryanair": FR_RYANAIR,
+        "origins_compare": FR_COMPARE,
         "nuits_min": 3,
         "nuits_max": 14,
         "seuil": 200,
@@ -57,8 +65,8 @@ ROUTES = [
     {
         "nom": "🇮🇹 Italie (Rome)",
         "destination": "CIA",
-        "origins_ryanair": ["BVA", "CRL", "MRS"],
-        "origins_compare": ["PAR", "BRU", "LYS"],
+        "origins_ryanair": FR_RYANAIR,
+        "origins_compare": FR_COMPARE,
         "nuits_min": 2,
         "nuits_max": 10,
         "seuil": 200,
@@ -66,8 +74,8 @@ ROUTES = [
     {
         "nom": "🇮🇹 Italie (Milan)",
         "destination": "BGY",
-        "origins_ryanair": ["BVA", "CRL", "MRS"],
-        "origins_compare": ["PAR", "BRU", "LYS"],
+        "origins_ryanair": FR_RYANAIR,
+        "origins_compare": FR_COMPARE,
         "nuits_min": 2,
         "nuits_max": 10,
         "seuil": 200,
@@ -75,8 +83,8 @@ ROUTES = [
     {
         "nom": "🇪🇸 Espagne (Barcelone)",
         "destination": "BCN",
-        "origins_ryanair": ["BVA", "CRL", "MRS"],
-        "origins_compare": ["PAR", "BRU", "LYS"],
+        "origins_ryanair": FR_RYANAIR,
+        "origins_compare": FR_COMPARE,
         "nuits_min": 2,
         "nuits_max": 10,
         "seuil": 200,
@@ -84,8 +92,8 @@ ROUTES = [
     {
         "nom": "🇪🇸 Espagne (Madrid)",
         "destination": "MAD",
-        "origins_ryanair": ["BVA", "CRL", "MRS"],
-        "origins_compare": ["PAR", "BRU", "LYS"],
+        "origins_ryanair": FR_RYANAIR,
+        "origins_compare": FR_COMPARE,
         "nuits_min": 2,
         "nuits_max": 10,
         "seuil": 200,
@@ -94,7 +102,7 @@ ROUTES = [
         "nom": "🇧🇪 Belgique (Bruxelles)",
         "destination": "BRU",
         "origins_ryanair": [],
-        "origins_compare": ["PAR", "LYS"],
+        "origins_compare": FR_COMPARE,
         "nuits_min": 1,
         "nuits_max": 10,
         "seuil": 200,
@@ -102,8 +110,8 @@ ROUTES = [
     {
         "nom": "🇬🇷 Mykonos",
         "destination": "JMK",
-        "origins_ryanair": ["BVA", "CRL", "MRS", "BGY"],
-        "origins_compare": ["PAR", "BRU"],
+        "origins_ryanair": FR_RYANAIR,
+        "origins_compare": FR_COMPARE,
         "nuits_min": 4,
         "nuits_max": 15,
         "seuil": 600,
@@ -112,7 +120,7 @@ ROUTES = [
         "nom": "🇧🇯 Bénin (Cotonou)",
         "destination": "COO",
         "origins_ryanair": [],
-        "origins_compare": ["PAR", "BRU"],
+        "origins_compare": FR_COMPARE,
         "nuits_min": 5,
         "nuits_max": 45,
         "seuil": 600,
@@ -121,7 +129,7 @@ ROUTES = [
         "nom": "🇨🇦 Canada (Montréal)",
         "destination": "YMQ",           # code ville : tous les aéroports
         "origins_ryanair": [],          # aucun low-cost ne traverse l'Atlantique
-        "origins_compare": ["PAR", "BRU", "LYS"],
+        "origins_compare": ["PAR", "LYS", "MRS", "NCE"],
         "nuits_min": 2,
         "nuits_max": 6,
         "seuil": 1200,
@@ -135,7 +143,7 @@ ROUTES = [
         "nom": "🇨🇦 Canada (Toronto)",
         "destination": "YTO",
         "origins_ryanair": [],
-        "origins_compare": ["PAR", "BRU", "LYS"],
+        "origins_compare": ["PAR", "LYS", "MRS", "NCE"],
         "nuits_min": 2,
         "nuits_max": 6,
         "seuil": 1200,
@@ -149,7 +157,7 @@ ROUTES = [
         "nom": "🇧🇸 Bahamas (Nassau)",
         "destination": "NAS",
         "origins_ryanair": [],
-        "origins_compare": ["PAR", "BRU"],
+        "origins_compare": FR_COMPARE,
         "nuits_min": 5,
         "nuits_max": 30,
         "seuil": 600,
@@ -237,6 +245,25 @@ def mois_de_la_plage() -> list:
         m = 1 if courant.month == 12 else courant.month + 1
         courant = date(annee, m, 1)
     return mois
+
+
+def dans_periode(depart: str, periode: dict) -> bool:
+    """Le départ tombe-t-il dans la période privilégiée ?
+
+    "mois" est obligatoire. "jour_min" et "jour_max" sont facultatifs et
+    permettent de viser une fenêtre précise, par exemple du 20 au 23 août.
+    """
+    try:
+        d = date.fromisoformat(depart)
+    except ValueError:
+        return False
+    if d.month not in periode["mois"]:
+        return False
+    if d.day < periode.get("jour_min", 1):
+        return False
+    if d.day > periode.get("jour_max", 31):
+        return False
+    return True
 
 
 def nuits_ok(depart: str, retour: str, route: dict) -> bool:
@@ -481,8 +508,7 @@ def main() -> None:
         # 2) meilleur prix sur la période privilégiée, s'il y en a une
         periode = route.get("periode")
         if periode:
-            sous = [o for o in offres
-                    if len(o[2]) >= 7 and int(o[2][5:7]) in periode["mois"]]
+            sous = [o for o in offres if dans_periode(o[2], periode)]
             traiter(f"{nom} · {periode['nom']}",
                     f"{dest}-{periode['nom']}", sous, periode["seuil"],
                     etat, nouvel_etat, alertes, recap, dest, exclure=retenu,
